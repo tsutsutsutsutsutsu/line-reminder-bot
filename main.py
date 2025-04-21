@@ -12,7 +12,10 @@ from google.oauth2.service_account import Credentials
 import gspread
 
 # Google Sheets 認証 (Base64エンコード環境変数から読み込み)
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive'
+]
 cred_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
 cred_json = base64.b64decode(cred_b64).decode("utf-8")
 cred_dict = json.loads(cred_json)
@@ -54,7 +57,7 @@ def handle_message(event):
     if "月" in user_message and "日" in user_message and "時" in user_message:
         reply_text = "予約を受け付けました。"
     else:
-        reply_text = "メッセージを受け取りました：{}".format(user_message)
+        reply_text = f"メッセージを受け取りました：{user_message}"
 
     # LINE返信
     line_bot_api.reply_message(
