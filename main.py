@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import base64
 import schedule
 import datetime
 from flask import Flask, request, abort
@@ -10,21 +11,22 @@ from linebot.exceptions import InvalidSignatureError
 from google.oauth2.service_account import Credentials
 import gspread
 
-# Google Sheets 認証
+# Google Sheets 認証 (Base64エンコード環境変数から読み込み)
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
-creds = Credentials.from_service_account_info(
-    json.loads(os.getenv("GOOGLE_CREDENTIALS")), scopes=SCOPES
-)
+cred_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
+cred_json = base64.b64decode(cred_b64).decode("utf-8")
+cred_dict = json.loads(cred_json)
+creds = Credentials.from_service_account_info(cred_dict, scopes=SCOPES)
 gc = gspread.authorize(creds)
 SPREADSHEET_NAME = 'LINE通知ログ'
 worksheet = gc.open(SPREADSHEET_NAME).sheet1
 
-# LINE Bot
+# LINE Bot 設定
 line_bot_api = LineBotApi(os.getenv("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("CHANNEL_SECRET"))
 
+# Flaskアプリ
 app = Flask(__name__)
-
 reminders = []
 
 @app.route("/callback", methods=['POST'])
@@ -45,18 +47,24 @@ def handle_message(event):
     user_id = event.source.user_id
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 通知ログをシートに追加
+    # スプレッドシートにログ追加
     worksheet.append_row([user_message, now, user_id])
 
-    # 返信
+    # 簡易的に予約文を認識
+    if "月" in user_message and "日" in user_message and "時" in user_message:
+        reply_text = "予約を受け付けました。"
+    else:
+        reply_text = "メッセージを受け取りました：{}".format(user_message)
+
+    # LINE返信
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=f"メッセージを受け取りました：{user_message}")
+        TextSendMessage(text=reply_text)
     )
 
-# 定期タスク
+# スケジューラー（例：定期実行したいことがあればここに）
 def run_scheduler():
-    schedule.every(1).minutes.do(lambda: None)  # 実際の通知処理がある場合に追加
+    schedule.every(1).minutes.do(lambda: None)
     while True:
         schedule.run_pending()
         time.sleep(1)
