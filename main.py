@@ -10,6 +10,13 @@ import time
 import schedule
 import json
 
+# 追加：Google Sheetsライブラリ
+import gspread
+from google.oauth2.service_account import Credentials
+
+# 認証スコープ
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+
 # .envから環境変数を読み込む
 load_dotenv()
 
@@ -21,9 +28,13 @@ handler = WebhookHandler(os.getenv("CHANNEL_SECRET"))
 # リマインダー情報の初期化
 reminders = []
 
-# ✅ メッセージ生成用の関数
-def create_message(month, day, hour):
-    return f"（テスト）予約通知です：{month}月{day}日 {hour}時"
+# Google Sheets認証
+creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+sheet = gspread.authorize(creds).open("LINE通知ログ").sheet1  # シート名は1枚目
+
+def log_to_sheet(message, user_id):
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    sheet.append_row([message, now, user_id])
 
 # JSONファイルからリマインダーを読み込み（あれば）
 if os.path.exists("reminders.json"):
@@ -34,7 +45,6 @@ if os.path.exists("reminders.json"):
             reminders.append(r)
     print("🔁 保存されたリマインダーを復元しました")
 
-# reminder保存関数
 def save_reminders():
     save_data = []
     for r in reminders:
@@ -75,14 +85,19 @@ def handle_message(event):
 
             remind_time = datetime.now() + timedelta(minutes=1)
 
+            message = f"（テスト）予約通知です：{month}月{day}日 {hour}時"
+
             reminder = {
                 "user_id": user_id,
-                "message": create_message(month, day, hour),
+                "message": message,
                 "remind_time": remind_time.replace(second=0, microsecond=0)
             }
 
             reminders.append(reminder)
             save_reminders()
+
+            # Google Sheets に書き込み
+            log_to_sheet(message, user_id)
 
             print("✅ 新規リマインダー登録：", reminder)
 
@@ -110,6 +125,7 @@ def check_reminders():
                 reminder["user_id"],
                 TextSendMessage(text=reminder["message"])
             )
+            log_to_sheet(f"通知送信：{reminder['message']}", reminder["user_id"])
             print(f"📤 通知送信：{reminder['message']} → ユーザーID: {reminder['user_id']}")
             reminders.remove(reminder)
             save_reminders()
@@ -122,7 +138,7 @@ def run_scheduler():
 
 threading.Thread(target=run_scheduler, daemon=True).start()
 
-# ✅ Railwayで動くようにポートは環境変数から取得！
+# Railway対応：ポート番号は環境変数から取得
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
