@@ -9,7 +9,6 @@ import threading
 import time
 import schedule
 import json
-import os.path
 
 # .envから環境変数を読み込む
 load_dotenv()
@@ -22,7 +21,7 @@ handler = WebhookHandler(os.getenv("CHANNEL_SECRET"))
 # リマインダー情報の初期化
 reminders = []
 
-# ✅ メッセージ生成用の関数（今はシンプルだが拡張しやすい）
+# ✅ メッセージ生成用の関数
 def create_message(month, day, hour):
     return f"（テスト）予約通知です：{month}月{day}日 {hour}時"
 
@@ -67,7 +66,6 @@ def handle_message(event):
 
     try:
         if "月" in user_msg and "日" in user_msg and "時" in user_msg:
-            # テキストから日付と時刻を抽出
             month = int(user_msg.split("月")[0])
             day = int(user_msg.split("月")[1].split("日")[0])
             hour = int(user_msg.split("日")[1].split("時")[0])
@@ -75,7 +73,6 @@ def handle_message(event):
             year = now.year
             target_time = datetime(year, month, day, hour, 0)
 
-            # テスト用：1分後に通知
             remind_time = datetime.now() + timedelta(minutes=1)
 
             reminder = {
@@ -105,7 +102,6 @@ def handle_message(event):
             TextSendMessage(text="エラーが発生しました。もう一度試してください。")
         )
 
-# リマインダーをチェックして通知
 def check_reminders():
     now = datetime.now().replace(second=0, microsecond=0)
     for reminder in reminders[:]:
@@ -118,7 +114,6 @@ def check_reminders():
             reminders.remove(reminder)
             save_reminders()
 
-# スケジューラー用スレッド起動
 def run_scheduler():
     schedule.every(1).minutes.do(check_reminders)
     while True:
@@ -127,6 +122,7 @@ def run_scheduler():
 
 threading.Thread(target=run_scheduler, daemon=True).start()
 
-# Flask起動
+# ✅ Railwayで動くようにポートは環境変数から取得！
 if __name__ == "__main__":
-    app.run(port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
