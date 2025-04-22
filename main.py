@@ -2,8 +2,8 @@ import os
 import json
 import time
 import base64
-import schedule
 import datetime
+import schedule
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -11,7 +11,7 @@ from linebot.exceptions import InvalidSignatureError
 from google.oauth2.service_account import Credentials
 import gspread
 
-# Google Sheets 認証 (Base64エンコードされた環境変数から読み込み)
+# ===== Google Sheets 認証 =====
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 cred_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
 cred_json = base64.b64decode(cred_b64).decode("utf-8")
@@ -21,13 +21,12 @@ gc = gspread.authorize(creds)
 SPREADSHEET_NAME = 'LINE通知ログ'
 worksheet = gc.open(SPREADSHEET_NAME).sheet1
 
-# LINE Bot 設定
+# ===== LINE Bot 設定 =====
 line_bot_api = LineBotApi(os.getenv("CHANNEL_ACCESS_TOKEN"))
 handler = WebhookHandler(os.getenv("CHANNEL_SECRET"))
 
-# Flask アプリケーション
+# ===== Flask アプリ =====
 app = Flask(__name__)
-reminders = []
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -47,25 +46,17 @@ def handle_message(event):
     user_id = event.source.user_id
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # リマインド時刻の仮取得（例: メッセージ内に "remind=YYYY-MM-DD HH:MM" があれば拾う）
-    remind_time = ""
-    if "remind=" in user_message:
-        try:
-            remind_time = user_message.split("remind=")[1].split()[0]
-        except:
-            pass
+    # シートに行を追加（id はタイムスタンプ）
+    unique_id = str(int(time.time()))
+    worksheet.append_row([unique_id, user_message, "", user_id])
 
-    # 一意な ID を付けてスプレッドシートに記録
-    new_id = str(int(time.time()))
-    worksheet.append_row([new_id, user_message, remind_time, user_id, now])
-
-    reply_text = "メッセージを受け取りました。"
+    # LINE返信
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply_text)
+        TextSendMessage(text="メッセージを受け取りました")
     )
 
-# リマインド処理（外部アクセス用）
+# ===== リマインダー機能（スプレッドシートから定期チェック） =====
 @app.route("/run-reminder", methods=["GET"])
 def run_reminder():
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -75,9 +66,12 @@ def run_reminder():
         remind_time = row.get("リマインド時刻")
         user_id = row.get("ユーザーID")
         message = row.get("メッセージ")
-        if remind_time and user_id and remind_time == now:
-            line_bot_api.push_message(user_id, TextSendMessage(text=f"⏰リマインド：{message}"))
 
+        if remind_time == now and user_id and message:
+            line_bot_api.push_message(
+                user_id,
+                TextSendMessage(text=f"⏰ リマインド：{message}")
+            )
     return "リマインド実行しました"
 
 if __name__ == "__main__":
