@@ -5,3 +5,6 @@ schedule
 gspread
 google-auth
 pytz
+line-bot-sdk==3.0.0
+pytz
+gspread
