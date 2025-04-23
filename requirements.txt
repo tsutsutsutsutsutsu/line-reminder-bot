@@ -1,5 +1,5 @@
 flask
-line-bot-sdk==3.0.2
+line-bot-sdk==3.14.5
 python-dotenv
 schedule
 gspread
