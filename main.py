@@ -13,7 +13,7 @@ from linebot.exceptions import InvalidSignatureError
 from google.oauth2.service_account import Credentials
 import gspread
 
-# Google Sheets 認証（Base64エンコードされた環境変数）
+# Google Sheets 認証
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -48,14 +48,13 @@ def handle_message(event):
     user_id = event.source.user_id
     now = datetime.datetime.now(pytz.timezone("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M")
 
-    # メッセージからリマインド時刻を抽出
     match = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", user_message)
     remind_time = match.group() if match else ""
 
     row_id = str(uuid.uuid4())[:8]
-    worksheet.append_row([row_id, user_message, remind_time, user_id])
-
+    worksheet.append_row([row_id, user_message, remind_time, user_id, ""])  # E列（状態）も追加
     reply_text = "予約を受け付けました。" if remind_time else f"メッセージを受け取りました：{user_message}"
+
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=reply_text)
@@ -63,9 +62,7 @@ def handle_message(event):
 
 @app.route("/run-reminder")
 def run_reminder():
-    tz = pytz.timezone("Asia/Tokyo")
-    now = datetime.datetime.now(tz)
-
+    now = datetime.datetime.now(pytz.timezone("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M")
     rows = worksheet.get_all_values()
     headers = rows[0]
     data = rows[1:]
@@ -76,14 +73,11 @@ def run_reminder():
             message = row[1]
             remind_time = row[2]
             user_id = row[3]
+            status = row[4] if len(row) >= 5 else ""
 
-            if remind_time:
-                rt = datetime.datetime.strptime(remind_time, "%Y-%m-%d %H:%M")
-                rt = tz.localize(rt)
-
-                if rt <= now:
-                    line_bot_api.push_message(user_id, TextSendMessage(text=f"⏰ リマインド：{message}"))
-                    worksheet.update_cell(i, 3, "")  # リマインド済みにする
+            if remind_time and remind_time <= now and status != "通知済み":
+                line_bot_api.push_message(user_id, TextSendMessage(text=f"⏰ リマインド：{message}"))
+                worksheet.update_cell(i, 5, "通知済み")  # E列に記録
         except Exception as e:
             print(f"[ERROR] Row {i}: {e}")
 
