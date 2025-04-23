@@ -1,29 +1,25 @@
 import os
 import json
+import time
 import base64
 import uuid
 import re
 import pytz
 import datetime
 from flask import Flask, request, abort
+
 from google.oauth2.service_account import Credentials
 import gspread
 
-from linebot.v3.webhooks import WebhookHandler
-from linebot.v3.webhooks.models import MessageEvent, TextMessageContent
 from linebot.v3.messaging import MessagingApi, Configuration, ApiClient, TextMessage
-
-# Flask アプリ初期化
-app = Flask(__name__)
-
-# LINE 設定
-channel_access_token = os.getenv("CHANNEL_ACCESS_TOKEN")
-channel_secret = os.getenv("CHANNEL_SECRET")
-configuration = Configuration(access_token=channel_access_token)
-handler = WebhookHandler(channel_secret)
+from linebot.v3.webhooks import WebhookParser
+from linebot.v3.webhooks.models import MessageEvent, TextMessageContent
 
 # Google Sheets 認証
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 cred_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
 cred_json = base64.b64decode(cred_b64).decode("utf-8")
 cred_dict = json.loads(cred_json)
@@ -31,30 +27,36 @@ creds = Credentials.from_service_account_info(cred_dict, scopes=SCOPES)
 gc = gspread.authorize(creds)
 worksheet = gc.open("LINE通知ログ").sheet1
 
+# LINE Bot 設定
+channel_secret = os.getenv("CHANNEL_SECRET")
+configuration = Configuration(access_token=os.getenv("CHANNEL_ACCESS_TOKEN"))
+parser = WebhookParser(channel_secret)
+
+app = Flask(__name__)
+
 @app.route("/callback", methods=["POST"])
 def callback():
     signature = request.headers.get("X-Line-Signature", "")
     body = request.get_data(as_text=True)
 
     try:
-        handler.handle(body, signature)
+        events = parser.parse(body, signature)
+        for event in events:
+            if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
+                handle_message(event)
     except Exception as e:
-        print("Webhook Error:", e)
+        print(f"[ERROR] Webhook parse failed: {e}")
         abort(400)
 
     return "OK"
 
-@handler.add(MessageEvent)
 def handle_message(event):
-    if not isinstance(event.message, TextMessageContent):
-        return
-
     user_message = event.message.text
     user_id = event.source.user_id
-    now = datetime.datetime.now(pytz.timezone("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M")
 
     match = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", user_message)
     remind_time = match.group() if match else ""
+    now = datetime.datetime.now(pytz.timezone("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M")
     row_id = str(uuid.uuid4())[:8]
     status = "未送信"
 
@@ -71,7 +73,6 @@ def handle_message(event):
 @app.route("/run-reminder")
 def run_reminder():
     now_dt = datetime.datetime.now(pytz.timezone("Asia/Tokyo"))
-
     rows = worksheet.get_all_values()
     headers = rows[0]
     data = rows[1:]
