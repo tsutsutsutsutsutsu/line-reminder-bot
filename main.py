@@ -53,10 +53,9 @@ def handle_message(event):
     remind_time = match.group() if match else ""
 
     row_id = str(uuid.uuid4())[:8]
-
     worksheet.append_row([row_id, user_message, remind_time, user_id])
-    reply_text = "予約を受け付けました。" if remind_time else f"メッセージを受け取りました：{user_message}"
 
+    reply_text = "予約を受け付けました。" if remind_time else f"メッセージを受け取りました：{user_message}"
     line_bot_api.reply_message(
         event.reply_token,
         TextSendMessage(text=reply_text)
@@ -64,7 +63,8 @@ def handle_message(event):
 
 @app.route("/run-reminder")
 def run_reminder():
-    now = datetime.datetime.now(pytz.timezone("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M")
+    tz = pytz.timezone("Asia/Tokyo")
+    now = datetime.datetime.now(tz)
 
     rows = worksheet.get_all_values()
     headers = rows[0]
@@ -77,9 +77,13 @@ def run_reminder():
             remind_time = row[2]
             user_id = row[3]
 
-            if remind_time and remind_time <= now:
-                line_bot_api.push_message(user_id, TextSendMessage(text=f"⏰ リマインド：{message}"))
-                worksheet.update_cell(i, 3, "")  # C列を空にする
+            if remind_time:
+                rt = datetime.datetime.strptime(remind_time, "%Y-%m-%d %H:%M")
+                rt = tz.localize(rt)
+
+                if rt <= now:
+                    line_bot_api.push_message(user_id, TextSendMessage(text=f"⏰ リマインド：{message}"))
+                    worksheet.update_cell(i, 3, "")  # リマインド済みにする
         except Exception as e:
             print(f"[ERROR] Row {i}: {e}")
 
