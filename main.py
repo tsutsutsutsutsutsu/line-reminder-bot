@@ -1,51 +1,43 @@
 import os
 import json
-import time
-import base64
-import uuid
 import re
+import uuid
 import pytz
 import datetime
-from flask import Flask, request, abort
+from flask import Flask, request
 
 from google.oauth2.service_account import Credentials
 import gspread
 
-from linebot.v3.messaging import Configuration, MessagingApi, ApiClient
+from linebot.v3.webhooks.models import CallbackRequest, MessageEvent, TextMessageContent
+from linebot.v3.messaging import Configuration, ApiClient, MessagingApi
 from linebot.v3.messaging.models import TextMessage
-from linebot.v3.webhooks import WebhookParser
-from linebot.v3.webhooks.models import MessageEvent, TextMessageContent
 
-# Google Sheets 認証
+# Google Sheets setup
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
-cred_b64 = os.getenv("GOOGLE_CREDENTIALS_B64")
-cred_json = base64.b64decode(cred_b64).decode("utf-8")
+cred_json = os.getenv("GOOGLE_CREDENTIALS_JSON")
 cred_dict = json.loads(cred_json)
 creds = Credentials.from_service_account_info(cred_dict, scopes=SCOPES)
 gc = gspread.authorize(creds)
 worksheet = gc.open("LINE通知ログ").sheet1
 
-# LINE Bot 設定
+# LINE bot setup
 configuration = Configuration(access_token=os.getenv("CHANNEL_ACCESS_TOKEN"))
-parser = WebhookParser(os.getenv("CHANNEL_SECRET"))
 
 app = Flask(__name__)
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers.get("X-Line-Signature", "")
-    body = request.get_data(as_text=True)
-    try:
-        events = parser.parse(body, signature)
-        for event in events:
-            if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
-                handle_message(event)
-    except Exception as e:
-        print(f"[ERROR] Webhook error: {e}")
-        abort(400)
+    body = request.get_json()
+    events = CallbackRequest(**body).events
+
+    for event in events:
+        if isinstance(event, MessageEvent) and isinstance(event.message, TextMessageContent):
+            handle_message(event)
+
     return "OK"
 
 def handle_message(event):
@@ -53,7 +45,6 @@ def handle_message(event):
     user_id = event.source.user_id
     now = datetime.datetime.now(pytz.timezone("Asia/Tokyo")).strftime("%Y-%m-%d %H:%M")
 
-    # メッセージからリマインド時刻を抽出
     match = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", user_message)
     remind_time = match.group() if match else ""
 
@@ -61,6 +52,7 @@ def handle_message(event):
     status = "未送信"
 
     worksheet.append_row([row_id, user_message, remind_time, user_id, status])
+
     reply_text = "予約を受け付けました。" if remind_time else f"メッセージを受け取りました：{user_message}"
 
     with ApiClient(configuration) as api_client:
@@ -86,7 +78,7 @@ def run_reminder():
     with ApiClient(configuration) as api_client:
         messaging_api = MessagingApi(api_client)
 
-        for i, row in enumerate(data, start=2):  # index start from 2 (row number in sheet)
+        for i, row in enumerate(data, start=2):
             try:
                 remind_time_str = row[remind_col]
                 user_id = row[user_id_col]
